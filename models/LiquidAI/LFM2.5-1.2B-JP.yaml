@@ -13,6 +13,8 @@ meta:
     - LiquidAI/LFM2.5-1.2B-Instruct
   hardware:
     h100: verified
+    h200: verified
+    b200: verified
 
 model:
   model_id: "LiquidAI/LFM2.5-1.2B-JP"
@@ -33,7 +35,12 @@ variants:
 compatible_strategies:
   - single_node_tp
 
-hardware_overrides: {}
+hardware_overrides:
+  # Blackwell (B200) only: route RMSNorm to the bundled oink kernels (measured ~+2.6% on B200,
+  # output identical). Inert (falls back to native) on non-Blackwell GPUs.
+  blackwell:
+    extra_env:
+      VLLM_USE_OINK_OPS: "1"
 strategy_overrides:
   single_node_tp:
     tp: 1
@@ -52,11 +59,12 @@ guide: |
   - **Japanese-specialized**: Tuned for Japanese chat and instruction following.
   - **Hybrid backbone**: Gated short convolutions interleaved with grouped-query attention — a smaller KV cache and lower decode latency than a same-size full-attention transformer.
   - **128K context**: Long-context support (`max_position_embeddings = 128000`).
-  - **Native vLLM support**: Served via the `Lfm2ForCausalLM` architecture — no `--trust-remote-code` required.
+  - **Native vLLM support**: Served via the `Lfm2ForCausalLM` architecture.
 
   ### Supported Variants
 
   Dense:
+  - `LiquidAI/LFM2.5-230M` (230M)
   - `LiquidAI/LFM2.5-350M` (350M)
   - `LiquidAI/LFM2.5-1.2B-Instruct` (1.2B)
   - `LiquidAI/LFM2.5-1.2B-Thinking` (1.2B, reasoning)
@@ -73,8 +81,8 @@ guide: |
 
   ## Prerequisites
 
-  - **Hardware**: 1× GPU with ≥8 GB VRAM. Verified on H100.
-  - **vLLM**: ≥ 0.23.0 — the LFM2 architecture ships in the 0.23.0 stable release.
+  - **Hardware**: 1× GPU with ≥8 GB VRAM.
+  - **vLLM**: ≥ 0.23.0.
 
   ### pip (NVIDIA CUDA)
   ```bash
