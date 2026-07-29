@@ -8,7 +8,7 @@ meta:
   difficulty: intermediate
   tasks:
     - multimodal
-  performance_headline: "BF16 vision-language serving validated against Hugging Face on MI325X, H100, H200, and B200"
+  performance_headline: "BF16 vision-language serving downstream-validated on MI325X, H100, H200, and B200"
   related_recipes:
     - LiquidAI/LFM2.5-VL-1.6B
     - LiquidAI/LFM2.5-VL-450M
@@ -71,6 +71,9 @@ guide: |
   This recipe uses the exact qualification checkpoint
   `LiquidAI/vlm_697589_37ef06_385cec4d_checkpoint_averaged_including_initial__correctness-checking`.
   Its recipe path matches that Hugging Face repository ID.
+  The owner-locked `LFM2-VL-3B-public` configuration could not be read during
+  qualification; rerun the published regression harness on the exact final
+  artifact when its repository and revision are provided.
 
   ## Validated runtime
 
@@ -78,9 +81,10 @@ guide: |
     digest `sha256:adf39421281d0874b5ac8d1665ea0e32ae6650a5615b29a99bd97d2aca23ae40`.
   - AMD MI325X: vLLM HEAD commit `32a423ac`, `rocm/vllm-dev:nightly`.
   - Tensor parallelism: TP=1. The 3B model fits on one GPU. H100 TP=2 was
-    rejected by the numeric gate: its ordinary 1500×730 case reached
-    `0.7538` maximum prefill delta and its long-image case reached `0.5112`.
-    TP=1 remained below `0.36` on those cases and was also more efficient.
+    not downstream-eval-qualified; its ordinary 1500×730 and long-image HF
+    diagnostics reached `0.7538` and `0.5112` maximum prefill delta. TP=1 is
+    the downstream-validated topology and avoids doubling hardware for a
+    model that fits one GPU.
   - Precision: BF16 only.
 
   ## Launch
@@ -174,7 +178,8 @@ guide: |
   A 2,048-text plus 2,048-image request soak at C=32 on MI325X produced one
   byte-identical output per workload, survived a malformed-image request,
   and changed used VRAM by less than 6 MB. H100 TP=2 also passed the API
-  robustness checks before failing the stricter Hugging Face numeric gate.
+  robustness checks; it was not downstream-eval-qualified and is not a
+  launch configuration.
 
   ## References
 
