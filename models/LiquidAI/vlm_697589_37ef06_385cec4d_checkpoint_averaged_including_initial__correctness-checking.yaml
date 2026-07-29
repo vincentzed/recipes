@@ -1,0 +1,178 @@
+meta:
+  title: "LFM2.5 VL 3B"
+  slug: "lfm2.5-vl-3b"
+  provider: "LiquidAI"
+  description: "Liquid AI's 3B vision-language model with an LFM2 hybrid language backbone and a SigLIP2 So400M vision tower."
+  date_added: 2026-07-29
+  date_updated: 2026-07-29
+  difficulty: intermediate
+  tasks:
+    - multimodal
+  performance_headline: "BF16 vision-language serving validated against Hugging Face on MI325X, H100, H200, and B200"
+  related_recipes:
+    - LiquidAI/LFM2.5-VL-1.6B
+    - LiquidAI/LFM2.5-VL-450M
+  hardware:
+    h100: verified
+    h200: verified
+    b200: verified
+    mi325x: verified
+
+model:
+  model_id: "LiquidAI/vlm_697589_37ef06_385cec4d_checkpoint_averaged_including_initial__correctness-checking"
+  min_vllm_version: "0.23.1"
+  nightly_required: true
+  docker_image:
+    nvidia: "vllm/vllm-openai@sha256:adf39421281d0874b5ac8d1665ea0e32ae6650a5615b29a99bd97d2aca23ae40"
+    amd: "rocm/vllm-dev:nightly"
+  architecture: dense
+  parameter_count: "3B"
+  active_parameters: "3B"
+  context_length: 32768
+  base_args:
+    - "--trust-remote-code"
+    - "--dtype bfloat16"
+    - "--max-model-len 8192"
+    - "--gpu-memory-utilization 0.72"
+    - "--served-model-name default"
+  base_env: {}
+
+variants:
+  default:
+    precision: bf16
+    vram_minimum_gb: 8
+    description: "BF16 language model and vision encoder; the only validated launch precision"
+
+compatible_strategies:
+  - single_node_tp
+
+hardware_overrides:
+  blackwell:
+    extra_args:
+      - "--attention-backend FLASH_ATTN"
+      - "--attention-config.flash_attn_version 2"
+  amd:
+    extra_args:
+      - "--max-model-len 32768"
+      - "--gpu-memory-utilization 0.85"
+
+strategy_overrides:
+  single_node_tp:
+    tp: 1
+
+guide: |
+  ## Overview
+
+  LFM2.5-VL-3B combines an LFM2 hybrid language backbone with a SigLIP2
+  So400M vision encoder. It supports text-only, single-image, and multi-image
+  OpenAI-compatible chat requests. The configurations on this page are BF16
+  only and were tested end-to-end against the Hugging Face implementation.
+
+  This recipe uses the exact qualification checkpoint
+  `LiquidAI/vlm_697589_37ef06_385cec4d_checkpoint_averaged_including_initial__correctness-checking`.
+  Its recipe path matches that Hugging Face repository ID.
+
+  ## Validated runtime
+
+  - NVIDIA: vLLM `0.23.1rc1.dev301+g04c2a8dea`, official nightly image
+    digest `sha256:adf39421281d0874b5ac8d1665ea0e32ae6650a5615b29a99bd97d2aca23ae40`.
+  - AMD MI325X: vLLM HEAD commit `32a423ac`, `rocm/vllm-dev:nightly`.
+  - Tensor parallelism: TP=1. The 3B model fits on one GPU. H100 TP=2 was
+    rejected by the numeric gate: its ordinary 1500×730 case reached
+    `0.7538` maximum prefill delta and its long-image case reached `0.5112`.
+    TP=1 remained below `0.36` on those cases and was also more efficient.
+  - Precision: BF16 only.
+
+  ## Launch
+
+  ### H100 and H200
+
+  ```bash
+  docker run --rm --gpus all --ipc=host --network host \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -e HF_TOKEN \
+    vllm/vllm-openai@sha256:adf39421281d0874b5ac8d1665ea0e32ae6650a5615b29a99bd97d2aca23ae40 \
+      --model LiquidAI/vlm_697589_37ef06_385cec4d_checkpoint_averaged_including_initial__correctness-checking \
+      --served-model-name default \
+      --trust-remote-code --dtype bfloat16 \
+      --max-model-len 8192 --gpu-memory-utilization 0.72
+  ```
+
+  ### B200
+
+  Force FlashAttention 2 on Blackwell. FlashAttention 4 failed the 6,931-token
+  long-image numeric gate with a `0.640996` maximum prefill delta, while the
+  same backend with FlashAttention 2 passed at `0.410131`. The explicit
+  version also retains high Blackwell throughput.
+
+  ```bash
+  docker run --rm --gpus all --ipc=host --network host \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -e HF_TOKEN \
+    vllm/vllm-openai@sha256:adf39421281d0874b5ac8d1665ea0e32ae6650a5615b29a99bd97d2aca23ae40 \
+      --model LiquidAI/vlm_697589_37ef06_385cec4d_checkpoint_averaged_including_initial__correctness-checking \
+      --served-model-name default \
+      --trust-remote-code --dtype bfloat16 \
+      --max-model-len 8192 --gpu-memory-utilization 0.72 \
+      --attention-backend FLASH_ATTN \
+      --attention-config.flash_attn_version 2
+  ```
+
+  ### AMD MI325X
+
+  ```bash
+  docker run --rm --device=/dev/kfd --device=/dev/dri \
+    --group-add video --ipc=host --network host \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -e HF_TOKEN \
+    rocm/vllm-dev:nightly \
+      --model LiquidAI/vlm_697589_37ef06_385cec4d_checkpoint_averaged_including_initial__correctness-checking \
+      --served-model-name default \
+      --trust-remote-code --dtype bfloat16 \
+      --max-model-len 32768 --gpu-memory-utilization 0.85
+  ```
+
+  ## Correctness
+
+  Qualification compared teacher-forced actual-token log probabilities with
+  Hugging Face at multiple image resolutions, including a 6,931-token
+  long-image prefill. The acceptance threshold was maximum absolute
+  actual-token log-probability delta <=0.5 for both prefill and decode.
+
+  | GPU | Maximum prefill delta | Maximum decode delta | Result |
+  |---|---:|---:|---|
+  | MI325X | 0.4320 | 0.0988 | PASS |
+  | H100 | 0.359605 | 0.114745 | PASS |
+  | H200 | 0.359605 | 0.086317 | PASS |
+  | B200, forced FlashAttention 2 | 0.410131 | 0.091458 | PASS |
+
+  ## Performance
+
+  Harness: 32-token deterministic image-chat completion, one image per
+  request. NVIDIA used 32 requests at C=1/C=4/C=8, 64 at C=16, and 128 at
+  C=32. Values are aggregate completion tokens/s from the official nightly
+  above.
+
+  | GPU | C=1 | C=4 | C=8 | C=16 | C=32 |
+  |---|---:|---:|---:|---:|---:|
+  | H100 | 271.83 | 761.38 | 1084.44 | 1324.53 | 1584.30 |
+  | H200 | 317.69 | 813.50 | 1134.52 | 1384.51 | 1596.43 |
+  | B200, forced FlashAttention 2 | 394.29 | 1084.87 | 1614.94 | 2052.35 | 2739.35 |
+  | MI325X | 309.10 | 866.20 | 1313.00 | 1939.00 | 2999.00 |
+
+  ## API validation
+
+  The launch configuration passed text-only, single-image, multi-image,
+  streaming/non-streaming parity, deterministic concurrent requests, and
+  malformed-image recovery. Use `--limit-mm-per-prompt '{"image": N}'` if
+  an application needs an explicit multi-image cap.
+
+  A 2,048-text plus 2,048-image request soak at C=32 on MI325X produced one
+  byte-identical output per workload, survived a malformed-image request,
+  and changed used VRAM by less than 6 MB. H100 TP=2 also passed the API
+  robustness checks before failing the stricter Hugging Face numeric gate.
+
+  ## References
+
+  - [LFM2.5 recipes](../../LiquidAI/LFM2.5)
+  - [vLLM supported models](https://docs.vllm.ai/en/latest/models/supported_models.html)
