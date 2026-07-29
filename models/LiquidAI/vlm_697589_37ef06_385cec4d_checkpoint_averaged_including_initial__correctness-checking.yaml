@@ -91,6 +91,9 @@ guide: |
 
   ### H100 and H200
 
+  SGLang's multimodal feature-transport IPC variables are not applicable to
+  vLLM; no corresponding frontend transport flag is required.
+
   ```bash
   docker run --rm --gpus all --ipc=host --network host \
     -v ~/.cache/huggingface:/root/.cache/huggingface \
@@ -109,6 +112,7 @@ guide: |
   the launch gate is downstream accuracy: the current official nightly
   scored `85.4209446%` on all 487 canonical CountBench examples with zero
   inference failures. It also reached `2753.73` completion tokens/s at C=32.
+  SGLang's feature-transport IPC variables are not applicable.
 
   ```bash
   docker run --rm --gpus all --ipc=host --network host \
@@ -124,6 +128,9 @@ guide: |
   ```
 
   ### AMD MI325X
+
+  vLLM does not use SGLang's processor-to-scheduler feature transport, so
+  `SGLANG_USE_CUDA_IPC_TRANSPORT` and its pool-handle cache are N/A here.
 
   ```bash
   docker run --rm --device=/dev/kfd --device=/dev/dri \
@@ -156,7 +163,45 @@ guide: |
 
   ## Performance
 
-  Harness: 32-token deterministic image-chat completion, one image per
+  ### Canonical LFM2.5 cookbook methodology
+
+  The primary table uses the exact established cookbook cells: `vllm bench
+  serve`, random input/output caps 1024/1024, C=1 with 10 prompts and C=100
+  with 1000 prompts. Current `random_range_ratio=0.0` samples request lengths
+  uniformly from 1 through each cap.
+
+  | GPU | C=1 total tok/s | C=100 total tok/s | Mean TTFT (C1 / C100) | Mean TPOT (C1 / C100) |
+  |---|---:|---:|---:|---:|
+  | H100 | 613.68 | 33722.53 | 224.70 / 617.36 ms | 3.04 / 5.33 ms |
+  | H200 | 767.21 | 37646.85 | 193.35 / 573.93 ms | 2.42 / 4.75 ms |
+  | B200, FlashAttention 4 | 510.31 | 38187.62 | 1813.17 / 380.16 ms | 2.15 / 4.87 ms |
+  | MI325X | 692.75 | 28592.70 | 12.39 / 56.70 ms | 2.68 / 6.53 ms |
+
+  Exact reproduction:
+
+  ```bash
+  for cell in 1:10 100:1000; do
+    concurrency=${cell%%:*}
+    prompts=${cell##*:}
+    vllm bench serve --backend vllm \
+      --host localhost --port 8000 \
+      --model LiquidAI/vlm_697589_37ef06_385cec4d_checkpoint_averaged_including_initial__correctness-checking \
+      --dataset-name random \
+      --random-input-len 1024 --random-output-len 1024 \
+      --num-prompts "$prompts" --max-concurrency "$concurrency"
+  done
+  ```
+
+  The exact command does not insert a synthetic warmup. The B200 C1 cell
+  therefore includes first-request compilation rather than replacing it
+  with a differently warmed number. The exact cookbook MMMU sampling command
+  (900 examples, 128 threads, max 2048, temperature 0.1, min-p 0.15) scores
+  `41.4467%` on the MI325X vLLM endpoint. This stochastic recipe score is
+  distinct from the temperature-zero downstream gate.
+
+  ### Image-serving launch methodology
+
+  The earlier launch harness is a 32-token deterministic image-chat completion, one image per
   request. NVIDIA used 32 requests at C=1/C=4/C=8, 64 at C=16, and 128 at
   C=32. Values are aggregate completion tokens/s from the official nightly
   above.
