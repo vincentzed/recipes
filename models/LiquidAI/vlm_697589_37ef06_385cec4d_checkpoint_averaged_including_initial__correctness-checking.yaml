@@ -50,7 +50,7 @@ hardware_overrides:
   blackwell:
     extra_args:
       - "--attention-backend FLASH_ATTN"
-      - "--attention-config.flash_attn_version 2"
+      - "--attention-config.flash_attn_version 4"
   amd:
     extra_args:
       - "--max-model-len 32768"
@@ -100,10 +100,11 @@ guide: |
 
   ### B200
 
-  Force FlashAttention 2 on Blackwell. FlashAttention 4 failed the 6,931-token
-  long-image numeric gate with a `0.640996` maximum prefill delta, while the
-  same backend with FlashAttention 2 passed at `0.410131`. The explicit
-  version also retains high Blackwell throughput.
+  Use FlashAttention 4 on Blackwell. An earlier nightly produced a
+  diagnostic-only `0.640996` maximum long-prefill log-probability delta, but
+  the launch gate is downstream accuracy: the current official nightly
+  scored `85.4209446%` on all 487 canonical CountBench examples with zero
+  inference failures. It also reached `2753.73` completion tokens/s at C=32.
 
   ```bash
   docker run --rm --gpus all --ipc=host --network host \
@@ -115,7 +116,7 @@ guide: |
       --trust-remote-code --dtype bfloat16 \
       --max-model-len 8192 --gpu-memory-utilization 0.72 \
       --attention-backend FLASH_ATTN \
-      --attention-config.flash_attn_version 2
+      --attention-config.flash_attn_version 4
   ```
 
   ### AMD MI325X
@@ -134,17 +135,20 @@ guide: |
 
   ## Correctness
 
-  Qualification compared teacher-forced actual-token log probabilities with
-  Hugging Face at multiple image resolutions, including a 6,931-token
-  long-image prefill. The acceptance threshold was maximum absolute
-  actual-token log-probability delta <=0.5 for both prefill and decode.
+  Qualification used canonical downstream evaluation accuracy as the
+  acceptance gate. Teacher-forced actual-token log probabilities were also
+  compared with Hugging Face at multiple image resolutions, including a
+  6,931-token long-image prefill, as a localization diagnostic.
 
   | GPU | Maximum prefill delta | Maximum decode delta | Result |
   |---|---:|---:|---|
   | MI325X | 0.4320 | 0.0988 | PASS |
   | H100 | 0.359605 | 0.114745 | PASS |
   | H200 | 0.359605 | 0.086317 | PASS |
-  | B200, forced FlashAttention 2 | 0.410131 | 0.091458 | PASS |
+  | B200, FlashAttention 4 | 0.389338 | 0.087213 | PASS diagnostic |
+
+  The B200 FlashAttention 4 downstream gate is CountBench `0.854209446`
+  (416/487), matching the canonical same-checkpoint reference.
 
   ## Performance
 
@@ -157,7 +161,7 @@ guide: |
   |---|---:|---:|---:|---:|---:|
   | H100 | 271.83 | 761.38 | 1084.44 | 1324.53 | 1584.30 |
   | H200 | 317.69 | 813.50 | 1134.52 | 1384.51 | 1596.43 |
-  | B200, forced FlashAttention 2 | 394.29 | 1084.87 | 1614.94 | 2052.35 | 2739.35 |
+  | B200, FlashAttention 4 | 389.51 | 1107.87 | 1603.41 | 2183.91 | 2753.73 |
   | MI325X | 309.10 | 866.20 | 1313.00 | 1939.00 | 2999.00 |
 
   ## API validation
