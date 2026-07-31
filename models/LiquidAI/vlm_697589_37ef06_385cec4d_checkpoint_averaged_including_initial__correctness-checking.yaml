@@ -4,7 +4,7 @@ meta:
   provider: "LiquidAI"
   description: "Liquid AI's 3B vision-language model with an LFM2 hybrid language backbone and a SigLIP2 So400M vision tower."
   date_added: 2026-07-29
-  date_updated: 2026-07-29
+  date_updated: 2026-07-31
   difficulty: intermediate
   tasks:
     - multimodal
@@ -111,7 +111,8 @@ guide: |
   diagnostic-only `0.640996` maximum long-prefill log-probability delta, but
   the launch gate is downstream accuracy: the current official nightly
   scored `85.4209446%` on all 487 canonical CountBench examples with zero
-  inference failures. It also reached `2753.73` completion tokens/s at C=32.
+  inference failures. In the corrected unique-image/cache-off workload it
+  reached `2115±22.13` completion tokens/s at C=32.
   SGLang's feature-transport IPC variables are not applicable.
 
   ```bash
@@ -201,17 +202,26 @@ guide: |
 
   ### Image-serving launch methodology
 
-  The earlier launch harness is a 32-token deterministic image-chat completion, one image per
-  request. NVIDIA used 32 requests at C=1/C=4/C=8, 64 at C=16, and 128 at
-  C=32. Values are aggregate completion tokens/s from the official nightly
-  above.
+  The publishable image benchmark uses `tokenomics==0.9.0` plus an audited
+  wrapper: a different deterministic 512×512 image for every request, 268
+  actual prompt tokens, 32 generated tokens, temperature zero, 128 prompts
+  per cell, one warmup, and three measured runs. Every row completed 2,304
+  requests with 2,304 distinct measured image hashes. Values are mean
+  completion tokens/s ± population standard deviation.
 
-  | GPU | C=1 | C=4 | C=8 | C=16 | C=32 |
-  |---|---:|---:|---:|---:|---:|
-  | H100 | 271.83 | 761.38 | 1084.44 | 1324.53 | 1584.30 |
-  | H200 | 317.69 | 813.50 | 1134.52 | 1384.51 | 1596.43 |
-  | B200, FlashAttention 4 | 389.51 | 1107.87 | 1603.41 | 2183.91 | 2753.73 |
-  | MI325X | 309.10 | 866.20 | 1313.00 | 1939.00 | 2999.00 |
+  | GPU / vLLM version / image / cache | C=1 | C=2 | C=4 | C=8 | C=16 | C=32 |
+  |---|---:|---:|---:|---:|---:|---:|
+  | H100 / `0.23.1rc1.dev301+g04c2a8dea` / official nightly / `--mm-processor-cache-gb 0` | 279.0±2.437 | 450.2±8.014 | 773.9±8.256 | 1121±17.42 | 1418±23.64 | 1753±20.41 |
+  | H200 / same / cache 0 | 278.9±0.972 | 463.7±8.462 | 770.5±7.232 | 1139±7.761 | 1468±10.86 | 1747±26.02 |
+  | B200 / same / FlashAttention 4 / cache 0 | 302.4±1.287 | 479.4±6.689 | 806.5±39.72 | 1248±110.6 | 1756±37.98 | 2115±22.13 |
+  | MI325X / `0.23.1rc1.dev1120+g0f0f28b53` / `rocm/vllm-dev:nightly-20260731` / default 4 GiB, zero measured hits | 304.9±1.143 | 526.7±1.198 | 883.6±4.704 | 1300±39.43 | 2080±21.37 | 2771±19.69 |
+
+  The earlier NVIDIA numbers are superseded because they repeated one image
+  while vLLM's processor cache was on and SGLang's vision cache was off.
+  A persistent-cache-off repeated-image control changed vLLM C32 by only
+  `+0.2%/+3.9%/-0.5%/+1.6%` on H100/H200/B200/MI325X. The unique-image
+  rows above are the serving comparison; the control is not published as a
+  workload result.
 
   ## API validation
 
